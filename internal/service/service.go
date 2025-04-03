@@ -11,32 +11,19 @@ type Repository interface {
 	HasRoom(ctx context.Context, canvasId int) bool
 	GetRoom(ctx context.Context, canvasId int) (domain.Room, error)
 	GetRoomList(ctx context.Context) ([]domain.Room, error)
-	JoinToRoom(ctx context.Context, canvasId int, conn *domain.Connection) error
+	JoinToRoom(ctx context.Context, canvasId int, userId int) error
 	RemoveFromRoom(ctx context.Context, canvasId, userId int) error
 	DeleteRoom(ctx context.Context, canvasId int) error
 }
 
 type DrawService struct {
-	repo Repository
+	repo    Repository
+	workers map[int]*RoomWorker
 }
 
-func New() *DrawService {
-	return &DrawService{}
-}
-
-func (d *DrawService) RunDrawWorker(ctx context.Context) {
-	for {
-		roomList, err := d.repo.GetRoomList(ctx)
-		if err != nil {
-			// TODO: error
-			return
-		}
-
-		for _, room := range roomList {
-			for userId, conn := range room.ActiveConnections {
-
-			}
-		}
+func New(ctx context.Context, repo Repository) *DrawService {
+	return &DrawService{
+		repo: repo,
 	}
 }
 
@@ -47,15 +34,12 @@ func (d *DrawService) JoinToRoom(ctx context.Context, userId, canvasId int, inpu
 			// TODO: error
 			return nil, err
 		}
+		d.workers[canvasId] = NewWorker(ctx, d.repo)
 	}
 
 	outputCh := make(chan []domain.Pixel, 100)
-	conn := &domain.Connection{
-		InputCh:  inputCh,
-		OutputCh: outputCh,
-	}
 
-	if err := d.repo.JoinToRoom(ctx, canvasId, conn); err != nil {
+	if err := d.repo.JoinToRoom(ctx, canvasId, userId); err != nil {
 		// TODO: error
 		return nil, err
 	}
