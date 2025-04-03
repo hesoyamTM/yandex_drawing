@@ -3,6 +3,7 @@ package v1
 import (
 	"context"
 	"encoding/json"
+	"math/rand"
 	"net/http"
 
 	"github.com/hesoyamTM/yandex_drawing/internal/domain"
@@ -15,10 +16,11 @@ var (
 	upgrader = websocket.Upgrader{
 		CheckOrigin: func(r *http.Request) bool { return true },
 	}
+	canvasId = 1
 )
 
 type DrawService interface {
-	JoinToRoom(ctx context.Context, userId, canvasId int, inputCh <-chan []domain.Pixel) (<-chan []domain.Pixel, error)
+	JoinToRoom(ctx context.Context, userId, canvasId int, inputCh <-chan domain.DrawEvent) (<-chan []domain.Pixel, error)
 	RemoveFromRoom(ctx context.Context, canvasId, userId int) error
 }
 
@@ -31,14 +33,17 @@ func HandleConnections(drawService DrawService) echo.HandlerFunc {
 		}
 		defer ws.Close()
 
-		inputCh := make(chan []domain.Pixel, 100)
-		outputCh, err := drawService.JoinToRoom(c.Request().Context(), 1, 1, inputCh)
+		inputCh := make(chan domain.DrawEvent, 100)
+		defer close(inputCh)
+
+		userId := rand.Int()
+
+		outputCh, err := drawService.JoinToRoom(c.Request().Context(), userId, canvasId, inputCh)
 		if err != nil {
 			c.Logger().Error(err)
 			return err
 		}
-		defer close(inputCh)
-		defer drawService.RemoveFromRoom(c.Request().Context(), 1, 1)
+		defer drawService.RemoveFromRoom(c.Request().Context(), canvasId, userId)
 
 		go func() {
 			for {
@@ -69,7 +74,10 @@ func HandleConnections(drawService DrawService) echo.HandlerFunc {
 				c.Logger().Error(err)
 				return err
 			}
-			inputCh <- changedPixels
+			inputCh <- domain.DrawEvent{
+				UserId: userId,
+				Pixels: changedPixels,
+			}
 		}
 	}
 }

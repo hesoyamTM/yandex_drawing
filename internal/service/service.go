@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"sync"
 
 	"github.com/hesoyamTM/yandex_drawing/internal/domain"
 )
@@ -19,39 +20,60 @@ type Repository interface {
 type DrawService struct {
 	repo    Repository
 	workers map[int]*RoomWorker
+	l       sync.Mutex
 }
 
 func New(ctx context.Context, repo Repository) *DrawService {
 	return &DrawService{
-		repo: repo,
+		repo:    repo,
+		workers: make(map[int]*RoomWorker),
 	}
 }
 
-func (d *DrawService) JoinToRoom(ctx context.Context, userId, canvasId int, inputCh <-chan []domain.Pixel) (<-chan []domain.Pixel, error) {
-	if !d.repo.HasRoom(ctx, canvasId) {
-		err := d.repo.CreateRoom(ctx, canvasId)
+func (d *DrawService) JoinToRoom(ctx context.Context, userId, canvasId int, inputCh <-chan domain.DrawEvent) (<-chan []domain.Pixel, error) {
+	if len(d.workers) == 0 {
+		worker, err := NewWorker(ctx, canvasId, d.repo)
 		if err != nil {
 			// TODO: error
 			return nil, err
 		}
-		d.workers[canvasId] = NewWorker(ctx, d.repo)
+
+		go worker.Run(ctx)
+
+		d.l.Lock()
+		d.workers[canvasId] = worker
+		d.l.Unlock()
 	}
 
 	outputCh := make(chan []domain.Pixel, 100)
-
-	if err := d.repo.JoinToRoom(ctx, canvasId, userId); err != nil {
-		// TODO: error
-		return nil, err
+	conn := &domain.Connection{
+		UserId:   userId,
+		OutputCh: outputCh,
 	}
+
+	d.l.Lock()
+	d.workers[canvasId].AddConnection(ctx, conn)
+	broadcastCh := d.workers[canvasId].InputCh
+	d.l.Unlock()
+
+	go func() {
+		for {
+			event, ok := <-inputCh
+			if !ok {
+				return
+			}
+
+			broadcastCh <- event
+		}
+	}()
 
 	return outputCh, nil
 }
 
 func (d *DrawService) RemoveFromRoom(ctx context.Context, canvasId, userId int) error {
-	if err := d.repo.RemoveFromRoom(ctx, canvasId, userId); err != nil {
-		// TODO: error
-		return err
-	}
+	d.l.Lock()
+	d.workers[canvasId].RemoveConnection(ctx, userId)
+	d.l.Unlock()
 
 	return nil
 }
