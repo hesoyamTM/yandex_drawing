@@ -6,8 +6,8 @@ type DrawEvent struct {
 }
 
 type Pixel struct {
-	Size  float32 `json:"size"`
-	Color string  `json:"color"`
-	X     float32 `json:"x"`
-	Y     float32 `json:"y"`
+	Size  int    `json:"size"`
+	Color string `json:"color"`
+	X     int    `json:"x"`
+	Y     int    `json:"y"`
 }

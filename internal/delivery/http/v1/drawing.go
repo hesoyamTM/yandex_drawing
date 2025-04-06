@@ -22,10 +22,13 @@ var (
 type DrawService interface {
 	JoinToRoom(ctx context.Context, userId, canvasId int, inputCh <-chan domain.DrawEvent) (<-chan []domain.Pixel, error)
 	RemoveFromRoom(ctx context.Context, canvasId, userId int) error
+	GetCanvas(ctx context.Context, canvasId int) ([]byte, error)
 }
 
 func HandleConnections(drawService DrawService) echo.HandlerFunc {
 	return func(c echo.Context) error {
+		c.Logger().Debug("new connection")
+
 		ws, err := upgrader.Upgrade(c.Response(), c.Request(), nil)
 		if err != nil {
 			c.Logger().Error(err)
@@ -33,7 +36,7 @@ func HandleConnections(drawService DrawService) echo.HandlerFunc {
 		}
 		defer ws.Close()
 
-		inputCh := make(chan domain.DrawEvent, 100)
+		inputCh := make(chan domain.DrawEvent)
 		defer close(inputCh)
 
 		userId := rand.Int()
@@ -45,10 +48,22 @@ func HandleConnections(drawService DrawService) echo.HandlerFunc {
 		}
 		defer drawService.RemoveFromRoom(c.Request().Context(), canvasId, userId)
 
+		canvas, err := drawService.GetCanvas(c.Request().Context(), canvasId)
+		if err != nil {
+			c.Logger().Error(err)
+			return err
+		}
+
+		if err = ws.WriteMessage(websocket.BinaryMessage, canvas); err != nil {
+			c.Logger().Error(err)
+			return err
+		}
+
 		go func() {
 			for {
 				pixels, ok := <-outputCh
 				if !ok {
+					ws.Close()
 					return
 				}
 				data, err := json.Marshal(pixels)
@@ -69,11 +84,13 @@ func HandleConnections(drawService DrawService) echo.HandlerFunc {
 				c.Logger().Error(err)
 				return err
 			}
+
 			var changedPixels []domain.Pixel
 			if err = json.Unmarshal(data, &changedPixels); err != nil {
 				c.Logger().Error(err)
 				return err
 			}
+
 			inputCh <- domain.DrawEvent{
 				UserId: userId,
 				Pixels: changedPixels,
