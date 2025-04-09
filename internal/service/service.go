@@ -4,11 +4,12 @@ import (
 	"context"
 	"sync"
 
+	"github.com/google/uuid"
 	"github.com/hesoyamTM/yandex_drawing/internal/domain"
 )
 
 const (
-	channelBuffer = 10000
+	channelBuffer = 10
 )
 
 type Repository interface {
@@ -23,18 +24,18 @@ type Repository interface {
 
 type DrawService struct {
 	repo    Repository
-	workers map[int]*RoomWorker
+	workers map[uuid.UUID]*RoomWorker
 	l       sync.Mutex
 }
 
 func New(ctx context.Context, repo Repository) *DrawService {
 	return &DrawService{
 		repo:    repo,
-		workers: make(map[int]*RoomWorker),
+		workers: make(map[uuid.UUID]*RoomWorker),
 	}
 }
 
-func (d *DrawService) GetCanvas(ctx context.Context, canvasId int) ([]byte, error) {
+func (d *DrawService) GetCanvas(ctx context.Context, canvasId, userId uuid.UUID) ([]byte, error) {
 
 	d.l.Lock()
 	worker, ok := d.workers[canvasId]
@@ -45,13 +46,13 @@ func (d *DrawService) GetCanvas(ctx context.Context, canvasId int) ([]byte, erro
 		return nil, nil
 	}
 
-	defer worker.UnlockBroadcast()
-
 	return worker.GetCanvas(ctx).GetInBytes(), nil
 }
 
-func (d *DrawService) JoinToRoom(ctx context.Context, userId, canvasId int, inputCh <-chan domain.DrawEvent) (<-chan []domain.Pixel, error) {
-	if len(d.workers) == 0 {
+func (d *DrawService) AddToCanvas(ctx context.Context, canvasId, userId uuid.UUID, inputCh <-chan domain.DrawEvent) (<-chan []domain.Pixel, error) {
+	_, ok := d.workers[canvasId]
+
+	if !ok {
 		worker, err := NewWorker(ctx, canvasId, d.repo)
 		if err != nil {
 			// TODO: error
@@ -66,14 +67,16 @@ func (d *DrawService) JoinToRoom(ctx context.Context, userId, canvasId int, inpu
 	}
 
 	outputCh := make(chan []domain.Pixel, channelBuffer)
-	conn := &domain.Connection{
-		UserId:   userId,
+	conn := &domain.DrawConnection{
+		User: domain.User{
+			Id:   userId,
+			Name: "",
+		},
 		OutputCh: outputCh,
 	}
 
 	d.l.Lock()
 	d.workers[canvasId].AddConnection(ctx, conn)
-	d.workers[canvasId].LockBroadcast()
 	broadcastCh := d.workers[canvasId].InputCh
 	d.l.Unlock()
 
@@ -91,14 +94,14 @@ func (d *DrawService) JoinToRoom(ctx context.Context, userId, canvasId int, inpu
 	return outputCh, nil
 }
 
-func (d *DrawService) RemoveFromRoom(ctx context.Context, canvasId, userId int) error {
+func (d *DrawService) RemoveFromCanvas(ctx context.Context, canvasId, userId uuid.UUID) error {
 	d.l.Lock()
 	worker := d.workers[canvasId]
 	d.l.Unlock()
 
 	worker.RemoveConnection(ctx, userId)
 
-	if len(worker.activeConnections) == 0 {
+	if len(worker.activeCanvasConnections) == 0 {
 		worker.Stop(ctx)
 
 		d.l.Lock()
@@ -106,5 +109,13 @@ func (d *DrawService) RemoveFromRoom(ctx context.Context, canvasId, userId int) 
 		d.l.Unlock()
 	}
 
+	return nil
+}
+
+func (d *DrawService) AddToChat(ctx context.Context, canvasId, userId uuid.UUID, inputCh <-chan domain.ChatMessage) (<-chan domain.ChatMessage, error) {
+	return nil, nil
+}
+
+func (d *DrawService) RemoveFromChat(ctx context.Context, canvasId, userId uuid.UUID) error {
 	return nil
 }

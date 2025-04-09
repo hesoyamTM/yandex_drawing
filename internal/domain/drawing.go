@@ -1,7 +1,9 @@
 package domain
 
+import "github.com/google/uuid"
+
 type DrawEvent struct {
-	UserId int
+	UserId uuid.UUID
 	Pixels []Pixel
 }
 
