@@ -19,9 +19,9 @@ var (
 )
 
 type DrawService interface {
-	AddToCanvas(ctx context.Context, canvasId, userId uuid.UUID, inputCh <-chan domain.DrawEvent) (<-chan []domain.Pixel, error)
+	AddToCanvas(ctx context.Context, canvasId, userId uuid.UUID, username string, inputCh <-chan domain.DrawEvent) (<-chan []domain.Pixel, error)
 	RemoveFromCanvas(ctx context.Context, canvasId, userId uuid.UUID) error
-	AddToChat(ctx context.Context, canvasId, userId uuid.UUID, inputCh <-chan domain.ChatMessage) (<-chan domain.ChatMessage, error)
+	AddToChat(ctx context.Context, canvasId, userId uuid.UUID, userName string, inputCh <-chan domain.ChatMessage) (<-chan domain.ChatMessage, error)
 	RemoveFromChat(ctx context.Context, canvasId, userId uuid.UUID) error
 	GetCanvas(ctx context.Context, canvasId, userId uuid.UUID) ([]byte, error)
 }
@@ -59,6 +59,7 @@ func Drawing(drawService DrawService) echo.HandlerFunc {
 			return err
 		}
 
+		userName := c.FormValue("name")
 		userId, err := uuid.Parse(c.FormValue("uid"))
 		if err != nil {
 			c.Logger().Error(err)
@@ -75,7 +76,7 @@ func Drawing(drawService DrawService) echo.HandlerFunc {
 		inputCh := make(chan domain.DrawEvent)
 		defer close(inputCh)
 
-		outputCh, err := drawService.AddToCanvas(c.Request().Context(), userId, canvasId, inputCh)
+		outputCh, err := drawService.AddToCanvas(c.Request().Context(), userId, canvasId, userName, inputCh)
 		if err != nil {
 			c.Logger().Error(err)
 			return err
@@ -130,6 +131,7 @@ func Chat(drawService DrawService) echo.HandlerFunc {
 			return err
 		}
 
+		userName := c.FormValue("name")
 		userId, err := uuid.Parse(c.FormValue("uid"))
 		if err != nil {
 			c.Logger().Error(err)
@@ -146,7 +148,7 @@ func Chat(drawService DrawService) echo.HandlerFunc {
 		inputCh := make(chan domain.ChatMessage)
 		defer close(inputCh)
 
-		outputCh, err := drawService.AddToChat(c.Request().Context(), userId, canvasId, inputCh)
+		outputCh, err := drawService.AddToChat(c.Request().Context(), userId, canvasId, userName, inputCh)
 		if err != nil {
 			c.Logger().Error(err)
 			return err

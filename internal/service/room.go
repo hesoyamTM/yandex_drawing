@@ -4,6 +4,8 @@ import (
 	"context"
 
 	"github.com/google/uuid"
+	"github.com/hesoyamTM/yandex_drawing/internal/service/canvas"
+	"github.com/hesoyamTM/yandex_drawing/internal/service/chat"
 )
 
 const (
@@ -14,7 +16,7 @@ const (
 
 type RoomWorker struct {
 	CanvasBroadcaster *canvas.CanvasBroadcaster
-	ChatBroadcaster   *canvas.ChatBroadcaster
+	ChatBroadcaster   *chat.ChatBroadcaster
 
 	canvasId uuid.UUID
 	repo     Repository
@@ -26,8 +28,8 @@ func NewWorker(ctx context.Context, canvasId uuid.UUID, repo Repository) (*RoomW
 	worker := &RoomWorker{
 		canvasId:          canvasId,
 		repo:              repo,
-		CanvasBroadcaster: NewCanvasBroadcaster(ctx, w, h),
-		ChatBroadcaster:   NewChatBroadcaster(ctx),
+		CanvasBroadcaster: canvas.NewCanvasBroadcaster(ctx, w, h),
+		ChatBroadcaster:   chat.NewChatBroadcaster(ctx),
 	}
 
 	return worker, nil

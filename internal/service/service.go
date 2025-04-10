@@ -38,18 +38,28 @@ func New(ctx context.Context, repo Repository) *DrawService {
 func (d *DrawService) GetCanvas(ctx context.Context, canvasId, userId uuid.UUID) ([]byte, error) {
 
 	d.l.Lock()
+	defer d.l.Unlock()
 	worker, ok := d.workers[canvasId]
-	d.l.Unlock()
 
 	if !ok {
-		// TODO: error
-		return nil, nil
+		worker, err := NewWorker(ctx, canvasId, d.repo)
+		if err != nil {
+			// TODO: error
+			return nil, err
+		}
+
+		go worker.CanvasBroadcaster.Run(ctx)
+
+		d.workers[canvasId] = worker
+		return worker.CanvasBroadcaster.GetCanvas(ctx, userId)
+
+		// TODO: если нет подключений, то убираем воркер
 	}
 
-	return worker.GetCanvas(ctx).GetInBytes(), nil
+	return worker.CanvasBroadcaster.GetCanvas(ctx, userId)
 }
 
-func (d *DrawService) AddToCanvas(ctx context.Context, canvasId, userId uuid.UUID, inputCh <-chan domain.DrawEvent) (<-chan []domain.Pixel, error) {
+func (d *DrawService) AddToCanvas(ctx context.Context, canvasId, userId uuid.UUID, username string, inputCh <-chan domain.DrawEvent) (<-chan []domain.Pixel, error) {
 	_, ok := d.workers[canvasId]
 
 	if !ok {
@@ -59,7 +69,7 @@ func (d *DrawService) AddToCanvas(ctx context.Context, canvasId, userId uuid.UUI
 			return nil, err
 		}
 
-		go worker.Run(ctx)
+		go worker.CanvasBroadcaster.Run(ctx)
 
 		d.l.Lock()
 		d.workers[canvasId] = worker
@@ -76,8 +86,8 @@ func (d *DrawService) AddToCanvas(ctx context.Context, canvasId, userId uuid.UUI
 	}
 
 	d.l.Lock()
-	d.workers[canvasId].AddConnection(ctx, conn)
-	broadcastCh := d.workers[canvasId].InputCh
+	d.workers[canvasId].CanvasBroadcaster.AddConnection(ctx, conn)
+	broadcastCh := d.workers[canvasId].CanvasBroadcaster.InputCh
 	d.l.Unlock()
 
 	go func() {
@@ -99,10 +109,10 @@ func (d *DrawService) RemoveFromCanvas(ctx context.Context, canvasId, userId uui
 	worker := d.workers[canvasId]
 	d.l.Unlock()
 
-	worker.RemoveConnection(ctx, userId)
+	worker.CanvasBroadcaster.RemoveConnection(ctx, userId)
 
-	if len(worker.activeCanvasConnections) == 0 {
-		worker.Stop(ctx)
+	if worker.CanvasBroadcaster.GetActiveConnectionCount() == 0 {
+		worker.CanvasBroadcaster.Stop()
 
 		d.l.Lock()
 		delete(d.workers, canvasId)
@@ -112,10 +122,26 @@ func (d *DrawService) RemoveFromCanvas(ctx context.Context, canvasId, userId uui
 	return nil
 }
 
-func (d *DrawService) AddToChat(ctx context.Context, canvasId, userId uuid.UUID, inputCh <-chan domain.ChatMessage) (<-chan domain.ChatMessage, error) {
+func (d *DrawService) AddToChat(ctx context.Context, canvasId, userId uuid.UUID, username string, inputCh <-chan domain.ChatMessage) (<-chan domain.ChatMessage, error) {
 	return nil, nil
 }
 
 func (d *DrawService) RemoveFromChat(ctx context.Context, canvasId, userId uuid.UUID) error {
+	return nil
+}
+
+func (d *DrawService) addWorker(ctx context.Context, canvasId uuid.UUID) error {
+	worker, err := NewWorker(ctx, canvasId, d.repo)
+	if err != nil {
+		// TODO: error
+		return err
+	}
+
+	go worker.CanvasBroadcaster.Run(ctx)
+
+	d.l.Lock()
+	d.workers[canvasId] = worker
+	d.l.Unlock()
+
 	return nil
 }
